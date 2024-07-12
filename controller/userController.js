@@ -72,7 +72,7 @@ const userVerify_otp = async (req, res) => {
         if (!errors.isEmpty()) {
             return res.status(400).json({
                 success: false,
-                checkEmail_error_array_msg: errors.array()[0]
+                checkEmail_error_array_msg: errors.array()[0].msg
             })
         }
 
