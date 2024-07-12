@@ -1,10 +1,23 @@
 const bcrypt = require('bcrypt')
 const userRegisterModel = require('../model/userRegisterModel')
+const updatePassword_data = require('../model/updatePasswordModel')
+const otp_data = require('../model/userOtpModel')
 const sendMail = require('../helper/mailer')
 const { validationResult } = require('express-validator')
 const randomString = require('randomstring')
-const updatePassword_data = require('../model/updatePasswordModel')
 const jwt = require('jsonwebtoken')
+
+let otpMail_send = async (name, gmail, id) => {
+    try {
+        let otp = Math.floor((Math.random() * 9000) + 1000)
+        let otp_saved_data = await otp_data.findOneAndUpdate({ user_id: id }, { otp, gmail }, { upsert: true }, { new: true })
+        const msg = `<p>Hello ${name} Welcome To Earning Planer, Your OTP Is <h4>${otp}</h4></p>`
+        sendMail(gmail, 'Verify Email', msg)
+        return otp_saved_data;
+    } catch (error) {
+        console.log(error)
+    }
+}
 
 const userRegister = async (req, res) => {
     try {
@@ -18,7 +31,6 @@ const userRegister = async (req, res) => {
 
         const { name, mobile_number, gmail_address, password } = req.body
         const bcrypt_pasword = await bcrypt.hash(password, 10)
-        const fullUrl = req.protocol + '://' + req.get('host');
         const isExists = await userRegisterModel.findOne({ gmail_address })
         if (isExists) {
             return res.status(400).json({
@@ -37,8 +49,7 @@ const userRegister = async (req, res) => {
         const user_data = new userRegisterModel(userData)
         const userModel_data = await user_data.save()
 
-        const msg = `<p>Hello ${userModel_data.name} Welcome To Earning Planer, Click <a href="${fullUrl}/varify?id=${userModel_data._id}"> here </a> To Verify Your Email id</p>`
-        sendMail(userModel_data.gmail_address, 'Verify Email', msg)
+        otpMail_send(userModel_data.name, userModel_data.gmail_address, user_data._id)
 
         res.status(200).json({
             success: true,
@@ -53,26 +64,55 @@ const userRegister = async (req, res) => {
     }
 }
 
-const userVerify = async (req, res) => {
+const userVerify_otp = async (req, res) => {
     try {
-        const id = req.query.id
-        user = await userRegisterModel.findOne({ _id: id })
-        if (user) {
-            if (user.is_verified === 1) {
-                return res.render('404', { title: 'Already Verified', h1: 'User Already Verified' })
-            }
-            await userRegisterModel.findByIdAndUpdate({ _id: id }, { is_verified: 1 }, { new: true })
-            return res.render('verification_success', { title: 'Verified Success', h1: 'Congratulations User Verified' })
+        const { otp, gmail_address } = req.body
+
+        const errors = validationResult(req)
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                success: false,
+                checkEmail_error_array_msg: errors.array()[0]
+            })
         }
+
+        isExists = await otp_data.findOne({ otp })
+        if (!isExists) {
+            return res.status(400).json({
+                success: false,
+                checkEmail_error_otp_not_matched_message: 'Wrong OTP please try again'
+            })
+        }
+
+        const totalUserData = await userRegisterModel.findOne({ _id: isExists.user_id })
+
+        if (totalUserData.is_verified === 1) {
+            await otp_data.deleteMany({ gmail: gmail_address })
+            return res.status(400).json({
+                success: false,
+                checkEmail_error_otp_already_verified_message: 'Your Email is Already Verified Please Login'
+            })
+        }
+        console.log(isExists.user_id)
+
+        await userRegisterModel.findByIdAndUpdate({ _id: isExists.user_id }, { is_verified: 1 }, { new: true })
+
+        return res.status(200).json({
+            success: true,
+            checkEmail_success_msg: '🎉🥳 Congratulations Your are Verified !'
+        })
+
     } catch (error) {
-        return res.render('404', { title: 'Invalid', h1: '😔 Sorry Invalid User' })
+        return res.status(400).json({
+            success: false,
+            msg: '😔 Sorry Invalid User'
+        })
     }
 }
 
-const userVerify_link = async (req, res) => {
+const userVerify_resend_otp = async (req, res) => {
     try {
         const { gmail_address } = req.body
-        const fullUrl = req.protocol + '://' + req.get('host');
 
         const isExists = await userRegisterModel.findOne({ gmail_address })
         if (!isExists) {
@@ -85,19 +125,18 @@ const userVerify_link = async (req, res) => {
         if (isExists.is_verified === 1) {
             return res.status(400).json({
                 success: false,
-                user_verify_link_gmailAlready_verified_msg: 'Gmail Already Verified'
+                user_verify_link_gmailAlready_verified_msg: 'Gmail Already Verified Please Login'
             })
         }
 
-        const msg = `<p>Hello ${isExists.name} Welcome To Earning Planer, Click <a href="${fullUrl}/varify?id=${isExists._id}"> here </a> To Verify Your Email id</p>`
-        sendMail(isExists.gmail_address, 'Verify Email', msg)
+        await otpMail_send(isExists.name, isExists.gmail_address, isExists._id)
 
         res.status(200).json({
             success: true,
-            msg: 'Verification Link Sended Successfully! Please Check',
+            msg: 'Verification OTP Sended Successfully! Please Check',
         })
     } catch (error) {
-
+        console.log(error)
     }
 }
 
@@ -252,8 +291,8 @@ const userHome_dataBase_get = async (req, res) => {
 
 module.exports = {
     userRegister,
-    userVerify,
-    userVerify_link,
+    userVerify_otp,
+    userVerify_resend_otp,
     userCheckGmail_signUp_data,
     userForgotPassword_dataBase_post,
     userUpdatePassword_Form_post,

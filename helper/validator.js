@@ -33,8 +33,16 @@ const loginValidator = [
     })
 ]
 
+const otpValidator = [
+    check('otp', 'OTP is only 4 digits').isLength({
+        max: 4,
+        min: 4
+    })
+]
+
 module.exports = {
     registerValidator,
     passwordValidator,
-    loginValidator
+    loginValidator,
+    otpValidator
 }
